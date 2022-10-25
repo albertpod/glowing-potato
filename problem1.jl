@@ -4,26 +4,6 @@ using Random, Distributions
 
 include("helpers.jl")
 
-@model [ default_factorisation = MeanField() ] function model1(n)
-    y = randomvar(n)
-    x = datavar(Float64, n)
-    β ~ Beta(1.0, 1.0)
-    α ~ Beta(1.0, 1.0)
-
-    zβ = randomvar(n)
-    zα = randomvar(n)
-    
-    m ~ NormalMeanVariance(0.0, 100.0)
-
-    for i in 1:n
-        zβ[i] ~ Bernoulli(β)
-        zα[i] ~ Bernoulli(α)
-        y[i] ~ NormalMixture(zβ[i], (0.0, 1.0), (1.0, 1.0))
-        x[i] ~ NormalMixture(zα[i], (m, y[i]), (1.0, 1.0))
-    end
-
-end
-
 function generate_dataset(n, priors)
     βdist = priors[:β]
     αdist = priors[:α]
@@ -44,8 +24,29 @@ end
 
 n = 1000
 
-priors = Dict(:m => Normal(5.0, 1e-1), :α => Beta(10.0, 1.0), :β => Beta(1.0, 1.0))
+priors = Dict(:m => Normal(3.0, 1.0), :α => Beta(10.0, 1.0), :β => Beta(2.0, 1.0))
 real_α, real_β, real_m, y_lat, x_obs = generate_dataset(n, priors)
+
+
+@model [ default_factorisation = MeanField() ] function model1(n)
+    y = randomvar(n)
+    x = datavar(Float64, n)
+    β ~ Beta(20.0, 1.0)
+    α ~ Beta(1.0, 1.0)
+
+    zβ = randomvar(n)
+    zα = randomvar(n)
+    
+    m ~ NormalMeanVariance(0.0, 100.0)
+
+    for i in 1:n
+        zβ[i] ~ Bernoulli(β)
+        zα[i] ~ Bernoulli(α)
+        y[i] ~ NormalMixture(zβ[i], (0.0, 1.0), (1.0, 1.0))
+        x[i] ~ NormalMixture(zα[i], (m, y[i]), (1.0, 1.0))
+    end
+
+end
 
 model = Model(model1, length(x_obs))
 data  = (x = x_obs,)
@@ -53,7 +54,7 @@ data  = (x = x_obs,)
 initmarginals = (
     β  = vague(Beta), 
     α  = vague(Beta), 
-    y = NormalMeanVariance(0.0, 1e2),
+    y = NormalMeanVariance(0.0, 1e3),
     m = NormalMeanVariance(0.0, 1e2),
 )
 
@@ -62,7 +63,7 @@ result = inference(
     model = model, 
     data  = data, 
     initmarginals = initmarginals, 
-    iterations  = 100, 
+    iterations  = 50, 
     free_energy = true,
     showprogress = true,
 )
@@ -82,14 +83,16 @@ y_inf = result.posteriors[:y][end]
 using StatsPlots
 
 plot(inf_α, label="infered mean $(mean(inf_α))", legend=:left)
-plot!(real_α, label="infered mean $(mean(real_α))", legend=:left)
+vline!([mean(real_α)], label="real mean $(mean(real_α))", legend=:left)
 
-plot(inf_β, label="infered mean $(mean(inf_β))", legend=:left)
-plot!(real_β, label="infered mean $(mean(real_β))", legend=:left)
+plot(inf_β, label="infered mean $(mean(inf_β))", legend=:right)
+vline!([mean(real_β)], label="real mean $(mean(real_β))", legend=:left)
 
-plot(Normal(mean(inf_m), var(inf_m)))
-plot!(real_m)
+plot(Normal(mean(inf_m), var(inf_m)), label="infered mean $(mean(inf_m))")
+vline!([mean(real_m)], label="real mean $(mean(real_m))", legend=:top)
 
 plot(x_obs, xlims=(1, 100))
 plot!(y_lat)
 plot!(mean.(y_inf), ribbon=sqrt.(var.(y_inf)))
+
+plot(result.free_energy)
