@@ -22,22 +22,22 @@ function generate_dataset(n, priors)
     return αdist, βdist, mdist, lat, obs
 end
 
-n = 1000
+n_samples = 1000
 
-priors = Dict(:m => Normal(3.0, 1.0), :α => Beta(10.0, 1.0), :β => Beta(2.0, 1.0))
-real_α, real_β, real_m, y_lat, x_obs = generate_dataset(n, priors)
+gen_priors = Dict(:m => Normal(3.0, 1.0), :α => Beta(10.0, 1.0), :β => Beta(2.0, 1.0)) # distributions for data generation
+real_α, real_β, real_m, y_lat, x_obs = generate_dataset(n_samples, gen_priors)
 
 
 @model [ default_factorisation = MeanField() ] function model1(n)
     y = randomvar(n)
     x = datavar(Float64, n)
-    β ~ Beta(20.0, 1.0)
+    β ~ Beta(1.0, 1.0)
     α ~ Beta(1.0, 1.0)
 
     zβ = randomvar(n)
     zα = randomvar(n)
     
-    m ~ NormalMeanVariance(0.0, 100.0)
+    m ~ NormalMeanVariance(0.0, 1e2)
 
     for i in 1:n
         zβ[i] ~ Bernoulli(β)
@@ -51,10 +51,11 @@ end
 model = Model(model1, length(x_obs))
 data  = (x = x_obs,)
 
+# initial marginal distributions
 initmarginals = (
-    β  = vague(Beta), 
+    β  = Beta(3.0, 1.0), 
     α  = vague(Beta), 
-    y = NormalMeanVariance(0.0, 1e3),
+    y = NormalMeanVariance(0.0, 1e2),
     m = NormalMeanVariance(0.0, 1e2),
 )
 
@@ -95,4 +96,4 @@ plot(x_obs, xlims=(1, 100))
 plot!(y_lat)
 plot!(mean.(y_inf), ribbon=sqrt.(var.(y_inf)))
 
-plot(result.free_energy)
+plot(result.free_energy, xlabel="iteration", ylabel="free energy")
