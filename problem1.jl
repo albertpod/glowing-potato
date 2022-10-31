@@ -1,13 +1,14 @@
 using Rocket, ReactiveMP, GraphPPL
 using LinearAlgebra
 using Random, Distributions
+using StatsPlots
 
 include("helpers.jl")
 
-function generate_dataset(n, priors)
-    βdist = priors[:β]
-    αdist = priors[:α]
-    mdist = priors[:m]
+function generate_dataset(n, parameters)
+    βdist = parameters[:β]
+    αdist = parameters[:α]
+    mdist = parameters[:m]
 
     β = mean(βdist)
     α = mean(αdist)
@@ -15,7 +16,7 @@ function generate_dataset(n, priors)
 
     obs, lat = [], []
     for _ in 1:n
-        # change m, β, α to rand(mdist), rand(βdist) ...
+        #  or rand(mdist), rand(βdist) ...
         push!(lat, rand(MixtureModel(Normal[Normal(0.0, 1.0),Normal(1.0, 1.0)], [β, 1-β])))
         push!(obs, rand(MixtureModel(Normal[Normal(m, 1.0), Normal(lat[end], 1.0)], [α, 1-α])))
     end
@@ -24,36 +25,39 @@ end
 
 n_samples = 1000
 
-gen_priors = Dict(:m => Normal(3.0, 1.0), :α => Beta(10.0, 1.0), :β => Beta(2.0, 1.0)) # distributions for data generation
-real_α, real_β, real_m, y_lat, x_obs = generate_dataset(n_samples, gen_priors)
+parameters = Dict(:m => Normal(10.0, 1.0), :α => Beta(1.0, 1.0), :β => Beta(1.0, 1.0)) # distributions for data generation
+real_α, real_β, real_m, y_lat, x_obs = generate_dataset(n_samples, parameters)
 
 
-@model [ default_factorisation = MeanField() ] function model1(n)
-    y = randomvar(n)
-    x = datavar(Float64, n)
-    β ~ Beta(1.0, 1.0)
-    α ~ Beta(1.0, 1.0)
+@model [ default_factorisation = MeanField() ] function model1(n, priors)
+    y = randomvar(n) # latent variables
+    x = datavar(Float64, n) # observations
+    β ~ Beta(priors[:α].α, priors[:α].β) # prior for the selector variable of y mixture
+    α ~ Beta(priors[:β].α, priors[:β].β) # prior for the selector variable of x mixture
 
-    zβ = randomvar(n)
+    # selector variable (mixture responsiblity)
+    zβ = randomvar(n) 
     zα = randomvar(n)
     
-    m ~ NormalMeanVariance(0.0, 1e2)
+    m ~ NormalMeanVariance(mean(priors[:m]), var(priors[:m]))
 
     for i in 1:n
-        zβ[i] ~ Bernoulli(β)
+        zβ[i] ~ Bernoulli(β) # selector is a binary variable, hence Bernoulli
         zα[i] ~ Bernoulli(α)
-        y[i] ~ NormalMixture(zβ[i], (0.0, 1.0), (1.0, 1.0))
+        y[i] ~ NormalMixture(zβ[i], (0.0, 1.0), (1.0, 1.0)) # selector, means tuple, variances tuple
         x[i] ~ NormalMixture(zα[i], (m, y[i]), (1.0, 1.0))
     end
 
 end
 
-model = Model(model1, length(x_obs))
+priors = Dict(:β => Beta(1.0, 1.0), :α => Beta(1.0, 1.0), :m => Normal(0.0, 1e2))
+model = Model(model1, length(x_obs), priors) # construct model
 data  = (x = x_obs,)
 
-# initial marginal distributions
+# initial marginal distributions due to mean-filed assumption
+# 
 initmarginals = (
-    β  = Beta(3.0, 1.0), 
+    β  = vague(Beta), 
     α  = vague(Beta), 
     y = NormalMeanVariance(0.0, 1e2),
     m = NormalMeanVariance(0.0, 1e2),
@@ -64,7 +68,7 @@ result = inference(
     model = model, 
     data  = data, 
     initmarginals = initmarginals, 
-    iterations  = 50, 
+    iterations  = 10, 
     free_energy = true,
     showprogress = true,
 )
@@ -80,9 +84,6 @@ inf_m = result.posteriors[:m][end]
 y_inf = result.posteriors[:y][end]
 
 
-
-using StatsPlots
-
 plot(inf_α, label="infered mean $(mean(inf_α))", legend=:left)
 vline!([mean(real_α)], label="real mean $(mean(real_α))", legend=:left)
 
@@ -92,8 +93,8 @@ vline!([mean(real_β)], label="real mean $(mean(real_β))", legend=:left)
 plot(Normal(mean(inf_m), var(inf_m)), label="infered mean $(mean(inf_m))")
 vline!([mean(real_m)], label="real mean $(mean(real_m))", legend=:top)
 
-plot(x_obs, xlims=(1, 100))
-plot!(y_lat)
-plot!(mean.(y_inf), ribbon=sqrt.(var.(y_inf)))
+scatter(x_obs, xlims=(1, 100), label="observations")
+plot!(y_lat, label="hidden")
+plot!(mean.(y_inf), ribbon=sqrt.(var.(y_inf)), label="inferred")
 
 plot(result.free_energy, xlabel="iteration", ylabel="free energy")
