@@ -1,4 +1,4 @@
-using Rocket, ReactiveMP, GraphPPL
+using RxInfer
 using LinearAlgebra
 using Random, Distributions
 using Flux, ForwardDiff
@@ -21,7 +21,7 @@ function D(x)
     x_ <= 0 ? pdf(NormalMeanVariance(x_ + 1, 0.1), x_) : pdf(NormalMeanVariance(0.0, 100.0), x_)
 end
 
-
+# idea, linearization + cvi
 @model [ default_factorisation = MeanField() ] function model2()
     τ = datavar(Float64)
 
@@ -29,27 +29,20 @@ end
 
     # workaround for uniform
 
-    # x ~ NormalMeanVariance(0, 1.0)
-    # m ~ NormalMeanVariance(-4.0, 1.0)
+    x ~ NormalMeanVariance(0, 1.0)
+    m ~ NormalMeanVariance(-4.0, 1.0)
 
-    # x_ ~ uniform_x(x) where {meta=CVIApproximation(2000, 1000, Descent(0.1))}
-    # m_ ~ uniform_m(m) where {meta=CVIApproximation(2000, 1000, Descent(0.1))}
+    x_ ~ uniform_x(x) where {meta=Linearization()}
+    m_ ~ uniform_m(m) where {meta=Linearization()}
 
-    # x__ ~ NormalMeanVariance(x_, 1.0)
-    # m__ ~ NormalMeanVariance(m_, 1.0)
+    x_m ~ x_ + m_ 
 
-
-    x__ ~ NormalMeanVariance(0.0, 1.0)
-    m__ ~ NormalMeanVariance(1.0, 1.0)
-
-    x_m ~ x__ + m__ 
-
-    d ~ D(x__) where {meta=CVIApproximation(2000, 1000, Descent(1.0))}
+    d ~ D(x_) where {meta=UT()}
 
     zα ~ Bernoulli(α)
     
-    y  ~ NormalMixture(zα, (d, x_m), (100.0, 10.0))
-    ŷ  ~ NormalMixture(zα, (d, x_m), (100.0, 10.0))
+    y  ~ NormalMixture(zα, (d, x_m), (1000.0, 10.0))
+    ŷ  ~ NormalMixture(zα, (d, x_m), (1000.0, 10.0))
 
     τ ~ NormalMeanVariance(y-ŷ, 1e-4)
 
