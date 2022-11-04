@@ -25,6 +25,20 @@ end
     return NormalMeanVariance(mean(q_out), inv(z_bar[k] * mean(q_p)))
 end
 
+@rule NormalMixture{2}((:m, k), Marginalisation) (q_out::NormalMeanVariance, q_switch::Bernoulli, q_p::GammaShapeRate, ) = begin 
+    pv    = probvec(q_switch)
+    T     = eltype(pv)
+    z_bar = clamp.(pv, tiny, one(T) - tiny)
+    return NormalMeanVariance(mean(q_out), inv(z_bar[k] * mean(q_p)))
+end
+
+@rule NormalMixture{2}((:p, k), Marginalisation) (q_out::NormalWeightedMeanPrecision, q_switch::Bernoulli, q_m::SampleList, ) = begin 
+    m_mean_k, v_mean_k = mean_cov(q_m)
+    m_out, v_out       = mean_cov(q_out)
+    z_bar              = probvec(q_switch)
+    return GammaShapeRate(one(eltype(z_bar)) + z_bar[k] / 2, z_bar[k] * (v_out + v_mean_k + abs2(m_out - m_mean_k)) / 2)
+end
+
 @average_energy NormalMixture (
     q_out::Any,
     q_switch::Any,
@@ -35,8 +49,8 @@ end
     return mapreduce(+, 1:N, init = 0.0) do i
         return z_bar[i] * score(
             AverageEnergy(),
-            MvNormalMeanPrecision,
-            Val{(:out, :μ, :Λ)},
+            NormalMeanPrecision,
+            Val{(:out, :μ, :τ)},
             map((q) -> Marginal(q, false, false), (q_out, q_m[i], q_p[i])),
             nothing
         )

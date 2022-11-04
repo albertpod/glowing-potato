@@ -97,39 +97,3 @@ plot!(y_lat, label="hidden")
 plot!(mean.(y_inf), ribbon=sqrt.(var.(y_inf)), label="inferred")
 
 plot(result.free_energy, xlabel="iteration", ylabel="free energy")
-
-
-# using Optim
-
-# function inference_result(params)
-#     priors = Dict(:β => Beta(abs.(params[1])+1e-12, abs.(params[2])+1e-12), :α => Beta( abs.(params[3])+1e-12,  abs.(params[4])+1e-12), :m => Normal(params[5], 1e2))
-#     data  = (x = x_obs,)
-
-#     # initial marginal distributions due to mean-filed assumption
-    
-#     initmarginals = (
-#         β  = Beta(abs.(params[6])+1e-12, abs.(params[7])+1e-12), 
-#         α  = Beta(abs.(params[8])+1e-12, abs.(params[9])+1e-12), 
-#         y = NormalMeanVariance(params[10], 1e2),
-#         m = NormalMeanVariance(params[11], 1e2),
-#     )
-
-
-#     result = inference(
-#         model = model1(length(x_obs), priors), 
-#         data  = data,
-#         constraints = MeanField(),
-#         initmarginals = initmarginals, 
-#         iterations  = 10, 
-#         free_energy = true,
-#         showprogress = false,
-#     )
-
-#     result.free_energy[end]
-# end
-
-# params = ones(11)
-
-# res = optimize(inference_result, params, GradientDescent(), Optim.Options(g_tol = 1e-2, iterations = 100, store_trace = true, show_trace = true, show_every = 10))
-
-# res.minimizer # Real values are indeed (c = 1.0 and μ0 = -5.0)

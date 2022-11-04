@@ -3,59 +3,68 @@ using LinearAlgebra
 using Random, Distributions
 using Flux, ForwardDiff
 using StableRNGs
+using Bijectors
 
 include("helpers.jl")
 
-function uniform_m(m)
-    aₘ, bₘ = 0.0, 3.0
-    m_ = m in aₘ:bₘ ? 1/(bₘ-aₘ) : 0 
-end
+dist_m = Uniform(0, 3)
+f_m(x) = inv(bijector(dist))(x)
+finv_m(x) = bijector(dist)(x)
 
-function uniform_x(x)
-    aₓ, bₓ = -5.0, 5.0
-    x_ = x in aₓ:bₓ ? 1/(bₓ-aₓ) : 0
-end
+dist_x = Uniform(-5, 5)
+f_x(x) = inv(bijector(dist))(x)
+finv_x(x) = bijector(dist)(x)
 
-function D(x)
-    # aₓ, bₓ = -5.0, 5.0
-    # x_ = x in aₓ:bₓ ? 1/(bₓ-aₓ) : 0
-    x_ = x
-    x_ <= 0 ? pdf(NormalMeanVariance(x_ + 1, 0.1), x_) : pdf(NormalMeanVariance(0.0, 100.0), x_)
-end
+
+# 
+Dm(x) = x <= 0 ? x + 1 : 0.0
+Dp(x) = x <= 0 ? inv(0.1) : inv(100.0)
 
 # idea, linearization + cvi
-@model function model2()
-    τ = datavar(Float64)
+@model function model2(n)
+    τ = datavar(Float64, n)
+    zα = randomvar(n)
 
     α ~ Beta(1.0, 1.0)
 
-    # workaround for uniform
+    x ~ Normal(μ=0.0, v=3.0)
+    m ~ Normal(μ=1.5, v=3.0)
 
-    x ~ NormalMeanVariance(0.0, 1.0)
-    m ~ NormalMeanVariance(3.0, 1.0)
+    x_ ~ f_x(x)
+    m_ ~ f_m(m)
 
-    x_ ~ uniform_x(x) where {meta=Unscented()}
-    m_ ~ uniform_m(m) where {meta=Unscented()}
+    dm ~ Dm(x_)
+    dp ~ Dp(x_)
 
+    zα .~ Bernoulli(α)
+    
     x_m ~ x_ + m_ 
 
-    # d ~ D(x_) where {meta=CVIApproximation(StableRNG(42), 1000, 1000, Descent(0.1))}
-    d ~ D(x_) where {meta=Unscented()}
+    for i in 1:n
+        y  ~ NormalMixture(zα[i], (dm, x_m), (dp, 10.0))
+        ŷ  ~ NormalMixture(zα[i], (dm, x_m), (dp, 10.0))
 
-    zα ~ Bernoulli(α)
-    
-    y  ~ NormalMixture(zα, (d, x_m), (1e4, 10.0))
-    ŷ  ~ NormalMixture(zα, (d, x_m), (1e4, 10.0))
-
-    τ ~ NormalMeanPrecision(y-ŷ, 1e4)
+        τ[i] ~ Normal(μ = y - ŷ, v=1e-4)
+    end
 
 end
 
-init_marginals = (x_m=NormalMeanPrecision(), d = NormalMeanPrecision(), m = NormalMeanPrecision(), x = NormalMeanPrecision(), 
-                  m_ = NormalMeanPrecision(), x_ = NormalMeanPrecision(), 
-                  α  = vague(Beta), ŷ=NormalMeanPrecision(), y=NormalMeanPrecision())
+init_marginals = (x_m=NormalMeanVariance(), dm = NormalMeanVariance(), dp = GammaShapeRate(), m = NormalMeanVariance(), x = NormalMeanVariance(), 
+                  m_ = NormalMeanVariance(), x_ = NormalMeanVariance(), 
+                  α  = vague(Beta), ŷ=NormalMeanVariance(), y=NormalMeanVariance())
 
-res = inference(model = model2(), data=(τ = 0.0,), free_energy=false, initmarginals = init_marginals, initmessages = init_marginals, iterations=10, showprogress=true, constraints=MeanField())
+@meta function model2_meta(seed, n_samples, itrs, optimizer=Descent(0.01))
+    Dm() -> CVI(StableRNG(seed), n_samples, itrs, optimizer, true)
+    Dp() -> CVI(StableRNG(seed), n_samples, itrs, optimizer, true)
+    f_x() -> DeltaMeta(method=Linearization(), inverse=finv_x)
+    f_m() -> DeltaMeta(method=Linearization(), inverse=finv_m)
+end
+
+n = 1
+res = inference(model = model2(n), data=(τ = [ 0.0 for i in 1:n ],), free_energy=true, initmarginals = init_marginals, initmessages = init_marginals, iterations=100, showprogress=true, constraints=MeanField(), meta=model2_meta(42, 1000, 100)
+)
+
+mean(res.posteriors[:α][end])
 
 res.posteriors[:α][end]
 @. mean(res.posteriors[:x_])[end]
