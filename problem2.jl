@@ -28,6 +28,7 @@ Dp(x) = x <= 0 ? inv(0.1) : inv(100.0)
 
     α ~ Beta(1.0, 100.0)
 
+    # the priors for the gaussians are chosen such that when transformed by bijectors the results correspond to uniform priors
     x ~ Normal(μ=0.0, v=3.5)
     m ~ Normal(μ=0.03, v=3.2)
 
