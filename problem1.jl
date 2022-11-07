@@ -3,8 +3,7 @@ using LinearAlgebra
 using Random, Distributions
 using StatsPlots
 
-include("helpers.jl")
-
+# Function for data generation 
 function generate_dataset(n, parameters)
     βdist = parameters[:β]
     αdist = parameters[:α]
@@ -25,7 +24,7 @@ end
 
 n_samples = 1000
 
-parameters = Dict(:m => Normal(10.0, 1.0), :α => Beta(1.0, 1.0), :β => Beta(10.0, 1.0)) # distributions for data generation
+parameters = Dict(:m => Normal(10.0, 1.0), :α => Beta(2.0, 1.0), :β => Beta(1.0, 1.0)) # distributions for data generation
 real_α, real_β, real_m, y_lat, x_obs = generate_dataset(n_samples, parameters)
 
 
@@ -39,24 +38,25 @@ real_α, real_β, real_m, y_lat, x_obs = generate_dataset(n_samples, parameters)
     zβ = randomvar(n) 
     zα = randomvar(n)
     
-    m ~ NormalMeanVariance(mean(priors[:m]), var(priors[:m]))
+    m ~ Normal(m=mean(priors[:m]), v=var(priors[:m]))
 
     for i in 1:n
         zβ[i] ~ Bernoulli(β) # selector is a binary variable, hence Bernoulli
         zα[i] ~ Bernoulli(α)
-        y[i] ~ NormalMixture(zβ[i], (0.0, 1.0), (1.0, 1.0)) # selector, means tuple, variances tuple
+        y[i] ~ NormalMixture(zβ[i], (0.0, 1.0), (1.0, 1.0)) # order: selector, tuple of means, tuple of variances
         x[i] ~ NormalMixture(zα[i], (m, y[i]), (1.0, 1.0))
     end
 
 end
 
-priors = Dict(:β => Beta(0.1, 1.0), :α => Beta(1.0, 1.0), :m => Normal(0.0, 1e2))
+# we initialize priors
+priors = Dict(:β => vague(Beta), :α => vague(Beta), :m => Normal(0.0, 1e2))
 data  = (x = x_obs,)
 
 # initial marginal distributions due to mean-filed assumption
-# 
+# To recover β, we need a somewhat good initial marginal
 initmarginals = (
-    β  = vague(Beta), 
+    β  = Beta(4.0, 1.0), 
     α  = vague(Beta), 
     y = NormalMeanVariance(0.0, 1e2),
     m = NormalMeanVariance(0.0, 1e2),
@@ -72,6 +72,7 @@ result = inference(
     showprogress = true,
 )
 
+# Retrieve posteriors
 # switches
 za = @. mean(result.posteriors[:zα][end])
 zb = @. mean(result.posteriors[:zβ][end])
@@ -83,17 +84,17 @@ inf_m = result.posteriors[:m][end]
 y_inf = result.posteriors[:y][end]
 
 
-plot(inf_α, label="infered mean $(mean(inf_α))", legend=:left)
+plot(inf_α, label="infered mean $(mean(inf_α))", legend=:left, fillalpha=0.3, fillrange = 0)
 vline!([mean(real_α)], label="real mean $(mean(real_α))", legend=:left)
 
-plot(inf_β, label="infered mean $(mean(inf_β))", legend=:right)
+plot(inf_β, label="infered mean $(mean(inf_β))", legend=:right, fillalpha=0.3, fillrange = 0)
 vline!([mean(real_β)], label="real mean $(mean(real_β))", legend=:left)
 
-plot(Normal(mean(inf_m), var(inf_m)), label="infered mean $(mean(inf_m))")
+plot(Normal(mean(inf_m), var(inf_m)), label="infered mean $(mean(inf_m))", fillalpha=0.3, fillrange = 0)
 vline!([mean(real_m)], label="real mean $(mean(real_m))", legend=:top)
 
 scatter(x_obs, xlims=(1, 100), label="observations")
-plot!(y_lat, label="hidden")
+plot!(y_lat, label="latent state y")
 plot!(mean.(y_inf), ribbon=sqrt.(var.(y_inf)), label="inferred")
 
-plot(result.free_energy, xlabel="iteration", ylabel="free energy")
+plot(result.free_energy, xlabel="iteration", ylabel="free energy", legend=false)
